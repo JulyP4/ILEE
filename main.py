@@ -1,14 +1,17 @@
 # -*- coding: utf-8 -*-
 """
-ILEE_CSK Minimal Script v6
-- 2D (slice/MIP): ILEE_2d + official indices CSVs
-- 3D (stack): ILEE_3d with robust preprocessing + official indices CSVs
+ILEE_CSK Minimal Script v7
+
+- 2D (slice/MIP): ILEE_2d preprocessing + General API indices via
+  analyze_document_2D
+- 3D (stack): ILEE_3d preprocessing + General API indices via
+  analyze_document_3D
 - K2: if not provided, auto-optimize via ILEE_CSK.opt_k2() for ALL modes
 - K1:
     * 2D default = 5 if not provided
     * 3D computed from K2 if not provided:
         K1 = 10 ** ((log10(2.5) + log10(K2)) / 2)
-- 3D exports only a TIF mask (no PNGs)
+- 3D exports only a TIF mask (no PNGs) plus indices CSV from the General API
 """
 
 from pathlib import Path
@@ -29,7 +32,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa
 
 import ILEE_CSK
-from ILEE_CSK import analyze_actin_2d_standard, analyze_actin_3d_standard
+from ILEE_CSK import analyze_document_2D, analyze_document_3D
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
@@ -56,6 +59,7 @@ DEFAULTS = dict(
     z_unit = None,         # Z-step in μm; defaults to pixel_size if None
     g_thres_model = "interaction",  # 'multilinear' or 'interaction' (3D)
     min_vol_um3 = 0.5,     # Remove 3D specks smaller than this volume (μm^3)
+    single_k = False,      # General 3D API: single K2 per stack
 )
 
 # ---------- Helpers ----------
@@ -120,6 +124,52 @@ def next_available(path: Path) -> Path:
         if not cand.exists():
             return cand
         i += 1
+
+
+def run_general_2d_indices(img12: np.ndarray, tag: str, out_dir: Path, px_um: float, k1: float, k2: float):
+    """Save a temporary TIFF and run analyze_document_2D for indices."""
+    tmp_dir = out_dir / "_tmp_general_2d"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    tif_tmp = tmp_dir / f"{tag}_tmp.tif"
+    imwrite(tif_tmp, img12.astype(np.uint16))
+
+    print("[INFO] Running General API (analyze_document_2D) ...")
+    df_general = analyze_document_2D(
+        folder_path=str(tmp_dir),
+        obj_channel=0,
+        k2=k2,
+        k1=k1,
+        pixel_size=px_um,
+        exclude_true_blank=False,
+    )
+
+    csv_indices = next_available(out_dir / f"{tag}_indices.csv")
+    df_general.to_csv(csv_indices, index=False)
+    print(" -", csv_indices.name, "(general 2D indices)")
+
+
+def run_general_3d_indices(stack_float: np.ndarray, tag: str, out_dir: Path, px_um: float, z_unit: float, k2: float, single_k: bool = False):
+    """Save a temporary stack and run analyze_document_3D for indices."""
+    tmp_dir = out_dir / "_tmp_general_3d"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    tif_tmp = tmp_dir / f"{tag}_tmp_stack.tif"
+    imwrite(tif_tmp, stack_float.astype(np.float32))
+
+    print("[INFO] Running General API (analyze_document_3D) ...")
+    df_general = analyze_document_3D(
+        folder_path=str(tmp_dir),
+        obj_channel=0,
+        k2=k2,
+        xy_unit=px_um,
+        z_unit=z_unit,
+        pixel_size=px_um,
+        single_k=single_k,
+        use_GPU=False,
+    )
+
+    csv_indices = next_available(out_dir / f"{tag}_indices.csv")
+    df_general.to_csv(csv_indices, index=False)
+    print(" -", csv_indices.name, "(general 3D indices)")
 # -----------------------------
 
 
@@ -224,17 +274,10 @@ def run(args):
         over = overlay_contour(viz01, mask, width=2, color=(1.0, 0.0, 0.0))
         plt.imsave(png_over, np.clip(over, 0, 1))
 
-        # Official 2D indices
         try:
-            df_general, df_dev = analyze_actin_2d_standard(img12, img_dif, pixel_size=px_um, exclude_true_blank=False)
-            csv_indices = next_available(out_dir / f"{tag}_indices.csv")
-            df_general.to_csv(csv_indices, index=False)
-            csv_dev = next_available(out_dir / f"{tag}_indices_dev.csv")
-            df_dev.to_csv(csv_dev, index=False)
-            print(" -", csv_indices.name, "(cytoskeleton indices)")
-            print(" -", csv_dev.name, "(non-biological indices)")
+            run_general_2d_indices(img12, tag, out_dir, px_um, k1, k2)
         except Exception as e:
-            print("[WARN] analyze_actin_2d_standard failed:", e)
+            print("[WARN] analyze_document_2D failed:", e)
 
         print("[DONE] 2D slice output:", out_dir.resolve())
         print(" -", tif_mask.name, "/", png_mask.name, "/", png_viz.name, "/", png_over.name)
@@ -265,17 +308,10 @@ def run(args):
         over = overlay_contour(viz01, mask, width=2, color=(1.0, 0.0, 0.0))
         plt.imsave(png_over, np.clip(over, 0, 1))
 
-        # Official 2D indices
         try:
-            df_general, df_dev = analyze_actin_2d_standard(img12, img_dif, pixel_size=px_um, exclude_true_blank=False)
-            csv_indices = next_available(out_dir / f"{tag}_indices.csv")
-            df_general.to_csv(csv_indices, index=False)
-            csv_dev = next_available(out_dir / f"{tag}_indices_dev.csv")
-            df_dev.to_csv(csv_dev, index=False)
-            print(" -", csv_indices.name, "(cytoskeleton indices)")
-            print(" -", csv_dev.name, "(non-biological indices)")
+            run_general_2d_indices(img12, tag, out_dir, px_um, k1, k2)
         except Exception as e:
-            print("[WARN] analyze_actin_2d_standard failed:", e)
+            print("[WARN] analyze_document_2D failed:", e)
 
         print("[DONE] 2D MIP output:", out_dir.resolve())
         print(" -", tif_mask.name, "/", png_mask.name, "/", png_viz.name, "/", png_over.name)
@@ -331,24 +367,10 @@ def run(args):
         imwrite(tif_stack, (mask_stack * 255).astype(np.uint8))
         print(" -", tif_stack.name)
 
-        # # 6) Official 3D indices CSV
-        # try:
-        #     df_general, df_dev = analyze_actin_3d_standard(
-        #         img_float_stack,    # preprocessed 12-bit float volume (before smoothing)
-        #         img_dif_stack,
-        #         xy_unit=px_um,
-        #         z_unit=z_unit,
-        #         oversampling_for_bundle=True,
-        #         pixel_size=px_um,
-        #     )
-        #     csv_indices = next_available(out_dir / f"{tag}_indices.csv")
-        #     df_general.to_csv(csv_indices, index=False)
-        #     csv_dev = next_available(out_dir / f"{tag}_indices_dev.csv")
-        #     df_dev.to_csv(csv_dev, index=False)
-        #     print(" -", csv_indices.name, "(cytoskeleton indices)")
-        #     print(" -", csv_dev.name, "(non-biological indices)")
-        # except Exception as e:
-        #     print("[WARN] analyze_actin_3d_standard failed:", e)
+        try:
+            run_general_3d_indices(img_float_stack, tag, out_dir, px_um, z_unit, k2, single_k=args.single_k)
+        except Exception as e:
+            print("[WARN] analyze_document_3D failed:", e)
 
         print("[DONE] 3D stack output:", out_dir.resolve())
 
@@ -357,7 +379,7 @@ def run(args):
 
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser("ILEE_CSK minimal v6 (opt_k2 for all; 3D K1 auto from K2)")
+    ap = argparse.ArgumentParser("ILEE_CSK minimal v7 (General API indices; opt_k2 for all; 3D K1 auto from K2)")
     ap.add_argument("--input")
     ap.add_argument("--out-root")
     ap.add_argument("--mode", choices=["2d-slice", "2d-mip", "3d-stack"])
@@ -370,6 +392,7 @@ if __name__ == "__main__":
     ap.add_argument("--z-unit", type=float, help="Z-step in μm; defaults to pixel-size")
     ap.add_argument("--g-thres-model", choices=["multilinear", "interaction"])
     ap.add_argument("--min-vol-um3", type=float, help="Remove 3D specks smaller than this volume (μm^3)")
+    ap.add_argument("--single-k", action="store_true", help="Use a single K2 per stack for 3D General API")
     args = ap.parse_args()
 
     # Fill unspecified args from DEFAULTS
