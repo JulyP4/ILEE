@@ -23,8 +23,8 @@ from ILEE_CSK import analyze_document_3D
 
 # Editable defaults for quick runs
 DEFAULTS = dict(
-    input_folder=r"E:\\NTU\\filament\\ILEE\\batch_3d/",  # Folder containing TIFF stacks (must end with "/")
-    obj_channel=0,  # Channel index of cytoskeleton fluorescence
+    input_folder=r"F:\\CZI_RAW\\DZ\\test_2/",  # Folder containing TIFF stacks (must end with "/")
+    obj_channel=None,  # Channel index of cytoskeleton fluorescence
     k2=None,  # Universal K2; when None, use opt_k2 on the folder
     k1=None,  # Universal K1; when None, compute from K2 per docs
     xy_unit=1.0,  # μm per pixel (XY)
@@ -32,10 +32,10 @@ DEFAULTS = dict(
     pixel_size=1.0,  # Should equal xy_unit when using real μm units
     single_k1=True,  # Use single-K mode to save time
     oversampling_for_bundle=False,  # Disable heavy oversampling by default
-    use_GPU=False,  # MATLAB GPU acceleration (if available)
+    use_GPU=True,  # MATLAB GPU acceleration (if available)
     g_thres_model="multilinear",  # Gradient threshold model
     include_nonstandarized_index=False,  # Add developmental indices
-    out_root=r"E:\\NTU\\filament\\ILEE\\outputs\\batch\\3d",  # Where to save result tables
+    out_root=r"F:\\CZI_RAW\\DZ\\test_2\\output",  # Where to save result tables
     out_csv="results_3d.csv",  # Output CSV filename
     out_excel=None,  # Optional Excel filename
 )
@@ -102,7 +102,12 @@ def run(args):
 if __name__ == "__main__":
     ap = argparse.ArgumentParser("ILEE_CSK batch 3D (General API)")
     ap.add_argument("--input-folder")
-    ap.add_argument("--obj-channel", type=int)
+    ap.add_argument(
+        "--obj-channel",
+        type=int,
+        default=None,
+        help="Channel index when TIFFs contain channels; leave unset for single-channel 3D stacks",
+    )
     ap.add_argument("--k2", type=float)
     ap.add_argument("--k1", type=float)
     ap.add_argument("--xy-unit", type=float)
