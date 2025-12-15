@@ -39,22 +39,22 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 #   - MATLAB is installed and callable
 #   - Parallel Computing Toolbox
 #   - NVIDIA GPU + drivers
-USE_MATLAB = False
-USE_MATLAB_GPU = False
+USE_MATLAB = True
+USE_MATLAB_GPU = True
 # =======================================================
 
 DEFAULTS = dict(
-    input = r"E:\NTU\filament\ILEE\test_iamges\Polymerized_actin-1_inverted.tif",  # Input path (2D/3D/4D)
-    out_root = r"E:\NTU\filament\ILEE\outputs",                                   # Output root folder
-    mode = "2d-slice",     # '2d-slice' | '2d-mip' | '3d-stack'
+    input = r"F:\CZI_RAW\DZ\test_2\Experiment-2088-SIM Processing-1.tif",  # Input path (2D/3D/4D)
+    out_root = r"F:\CZI_RAW\DZ\test_2",                                   # Output root folder
+    mode = "3d-stack",     # '2d-slice' | '2d-mip' | '3d-stack'
     z_index = 14,          # Only for '2d-slice'
-    channel = 0,           # Channel index for 4D input
+    channel =None,           # Channel index for 4D input
     k1 = None,             # 2D default=5; 3D auto-computed from K2 if None
     k2 = None,             # Auto-optimized via opt_k2() if None
     median = 1,            # Median kernel (odd int; 1 = disabled)
     pixel_size = 1.0,      # XY pixel size in μm (1.0 → pixel units)
     z_unit = None,         # Z-step in μm; defaults to pixel_size if None
-    g_thres_model = "interaction",  # 'multilinear' or 'interaction' (3D)
+    g_thres_model = "multilinear",  # 'multilinear' or 'interaction' (3D)
     min_vol_um3 = 0.5,     # Remove 3D specks smaller than this volume (μm^3)
 )
 
@@ -153,7 +153,7 @@ def run(args):
 
     # ---- Auto-optimize K2 (ALL modes) ----
     if args.k2 is None:
-        target_ch = args.channel if aligned.ndim == 4 else 0
+        target_ch = args.channel if aligned.ndim == 4 else None
         print("[INFO] K2 not provided; auto-optimizing via opt_k2() ...")
         k2 = auto_opt_k2_single_file(in_path, target_ch, out_dir)
         print(f"[INFO] Using K2 = {k2}")
