@@ -1,12 +1,12 @@
 """
 Batch 2D cytoskeleton analysis (slice or MIP) with per-image preprocessing,
-ILEE_2d + analyze_actin_2d_standard, and aggregated CSV / Excel outputs.
+ILEE_2d + analyze_actin_2d_standard, and aggregated workbook outputs.
 
 Adds support for:
 - Saving generated 2D images in mode-dependent sibling folders
 - Recursively mirroring any input sub-folder structure
 - Collecting optional non-standardized indices into the same row
-- Writing a combined CSV plus multi-sheet Excel (one sheet per sub-folder)
+- Writing a single Excel workbook with an all-images sheet and per-folder sheets
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ import argparse
 import warnings
 from pathlib import Path
 import shutil
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, Iterable, List, Set, Tuple
 
 import numpy as np
 import pandas as pd
@@ -239,6 +239,10 @@ def process_file(
     merged_row["file_name"] = tif_path.name
     merged_row["folder_key"] = folder_key
 
+    all_cols = list(merged_row.columns)
+    middle_cols = [c for c in all_cols if c not in ["file_name", "folder_key", "file_path"]]
+    merged_row = merged_row[["file_name", "folder_key", *middle_cols, "file_path"]]
+
     print("[DONE] Finished:", out_dir)
     return merged_row, preproc_path
 
@@ -254,6 +258,27 @@ def collect_files_with_keys(in_dir: Path) -> List[Tuple[Path, str]]:
         folder_key = "/".join(rel_dir.parts) if rel_dir.parts else in_dir.name
         files_with_keys.append((tif_path, folder_key))
     return files_with_keys
+
+
+def sanitize_sheet_name(name: str, used_names: Set[str]) -> str:
+    """Return a sheet name compatible with Excel constraints and unique within the workbook."""
+
+    invalid = "[]:*?/\\"
+    cleaned = "".join("_" if c in invalid else c for c in name)
+    cleaned = cleaned.strip()
+    if not cleaned:
+        cleaned = "sheet"
+    cleaned = cleaned[:31]
+
+    base = cleaned
+    i = 1
+    while cleaned in used_names:
+        suffix = f"_{i}"
+        cleaned = (base[: (31 - len(suffix))] if len(base) + len(suffix) > 31 else base) + suffix
+        i += 1
+
+    used_names.add(cleaned)
+    return cleaned
 
 
 def run(args):
@@ -321,25 +346,23 @@ def run(args):
     all_rows = [row for rows in folder_results.values() for row in rows]
     df_all = pd.concat(all_rows, ignore_index=True) if all_rows else pd.DataFrame()
 
-    csv_name = f"{in_dir.name}{suffix}_indices.csv"
-    csv_path = next_available(out_root / csv_name)
-    df_all.to_csv(csv_path, index=False)
-    print("\n[INFO] Saved combined CSV:", csv_path)
+    excel_name = f"{in_dir.name}{suffix}_indices.xlsx"
+    excel_path = next_available(out_root / excel_name)
+    used_sheet_names: Set[str] = set()
 
-    if len(folder_results) > 1:
-        excel_name = f"{in_dir.name}{suffix}_indices.xlsx"
-        excel_path = next_available(out_root / excel_name)
-        with pd.ExcelWriter(excel_path) as writer:
-            for key, rows in folder_results.items():
-                df_sheet = pd.concat(rows, ignore_index=True)
-                sheet_name = key.replace("/", "_")[:31] or "root"
-                df_sheet.to_excel(writer, sheet_name=sheet_name, index=False)
-        print("[INFO] Saved multi-sheet Excel:", excel_path)
+    with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
+        df_all.to_excel(writer, sheet_name=sanitize_sheet_name("all_images", used_sheet_names), index=False)
+        for folder_key, rows in sorted(folder_results.items()):
+            df_folder = pd.concat(rows, ignore_index=True)
+            sheet_name = sanitize_sheet_name(folder_key if folder_key else "root", used_sheet_names)
+            df_folder.to_excel(writer, sheet_name=sheet_name, index=False)
+
+    print("\n[INFO] Saved combined workbook:", excel_path)
 
     print("\n ==============================")
     print(" ALL FINISHED SUCCESSFULLY")
     print(" Preprocessed_2D root:", preproc_root)
-    print(" CSV:", csv_path)
+    print(" Workbook:", excel_path)
     print(" ==============================")
 
 
