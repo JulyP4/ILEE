@@ -36,7 +36,7 @@ USE_MATLAB_GPU = False
 
 DEFAULTS = dict(
     input_folder=r"F:\\TIF_RAW\\DZ\\",
-    out_root=r"F:\\TIF_RAW\\DZ_MIP_outputs",
+    out_root=None,
     mode="mip",  # 'mip' or 'slice'
     z_index=0,
     channel=None,
@@ -115,6 +115,16 @@ def determine_preproc_root(in_dir: Path, mode: str, z_index: int, is_2d: bool) -
     else:
         suffix = "_preprocessed_2d"
     return in_dir.parent / f"{name}{suffix}", suffix
+
+
+def make_mode_suffix(is_2d_only: bool, mode: str, z_index: int) -> str:
+    if is_2d_only:
+        return ""
+    if mode == "mip":
+        return "_MIP"
+    if mode == "slice":
+        return f"_Z{z_index}"
+    return ""
 
 
 # ------------------------------------------------------------
@@ -287,8 +297,6 @@ def sanitize_sheet_name(name: str, used_names: Set[str]) -> str:
 
 def run(args):
     in_dir = Path(args.input_folder)
-    out_root = Path(args.out_root)
-    out_root.mkdir(exist_ok=True, parents=True)
 
     files_with_keys = collect_files_with_keys(in_dir)
     if not files_with_keys:
@@ -296,6 +304,14 @@ def run(args):
 
     sample_img = align_image_dimension(imread(str(files_with_keys[0][0])))
     is_2d_only = sample_img.ndim == 2
+
+    mode_suffix = make_mode_suffix(is_2d_only, args.mode.lower(), args.z_index)
+
+    if args.out_root is None:
+        out_root = in_dir.parent / f"{in_dir.name}{mode_suffix}_output"
+    else:
+        out_root = Path(args.out_root)
+    out_root.mkdir(exist_ok=True, parents=True)
 
     preproc_root, suffix = determine_preproc_root(in_dir, args.mode.lower(), args.z_index, is_2d_only)
     preproc_root.mkdir(parents=True, exist_ok=True)
@@ -363,7 +379,7 @@ def run(args):
     all_rows = [row for rows in folder_results.values() for row in rows]
     df_all = pd.concat(all_rows, ignore_index=True) if all_rows else pd.DataFrame()
 
-    excel_name = f"{in_dir.name}{suffix}_indices.xlsx"
+    excel_name = f"{in_dir.name}{mode_suffix}_indices.xlsx"
     excel_path = next_available(out_root / excel_name)
     used_sheet_names: Set[str] = set()
 
