@@ -238,10 +238,14 @@ def process_file(
     merged_row["file_path"] = str(tif_path)
     merged_row["file_name"] = tif_path.name
     merged_row["folder_key"] = folder_key
+    merged_row["k1"] = k1
+    merged_row["k2"] = k2
 
     all_cols = list(merged_row.columns)
-    middle_cols = [c for c in all_cols if c not in ["file_name", "folder_key", "file_path"]]
-    merged_row = merged_row[["file_name", "folder_key", *middle_cols, "file_path"]]
+    middle_cols = [
+        c for c in all_cols if c not in ["file_name", "folder_key", "k1", "k2", "file_path"]
+    ]
+    merged_row = merged_row[["file_name", "folder_key", *middle_cols, "k1", "k2", "file_path"]]
 
     print("[DONE] Finished:", out_dir)
     return merged_row, preproc_path
@@ -302,30 +306,43 @@ def run(args):
     print("PREPROC :", preproc_root)
     print("==============================")
 
-    print("\n[INFO] Calculating GLOBAL K2 using opt_k2 on all samples ...")
-
-    if args.k2 is not None:
-        k2 = float(args.k2)
-    else:
-        tmp_dir = out_root / "_tmp_k2"
-        if tmp_dir.exists():
-            shutil.rmtree(tmp_dir)
-        tmp_dir.mkdir(parents=True, exist_ok=True)
-        try:
-            for idx, (f, _) in enumerate(files_with_keys):
-                img = imread(str(f))
-                if is_2d_only:
-                    img = img[np.newaxis, ...]
-                imwrite(tmp_dir / f"sample_{idx}.tif", img)
-            k2 = ILEE_CSK.opt_k2(
-                str(tmp_dir),
-                target_channel=None if is_2d_only else args.channel,
-            )
-        finally:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
     k1 = float(args.k1) if args.k1 is not None else 2.5
 
-    print(f"[GLOBAL] K2 = {k2:.4f}")
+    k2_by_folder: Dict[str, float] = {}
+    if args.k2 is not None:
+        k2_global = float(args.k2)
+        k2_by_folder = {folder_key: k2_global for _, folder_key in files_with_keys}
+        print("\n[INFO] Using user-provided GLOBAL K2 value ...")
+        print(f"[GLOBAL] K2 = {k2_global:.4f}")
+    else:
+        print("\n[INFO] Calculating folder-level K2 using opt_k2 ...")
+        files_by_folder: Dict[str, List[Path]] = {}
+        for tif_path, folder_key in files_with_keys:
+            files_by_folder.setdefault(folder_key, []).append(tif_path)
+
+        tmp_base = out_root / "_tmp_k2"
+        if tmp_base.exists():
+            shutil.rmtree(tmp_base)
+        tmp_base.mkdir(parents=True, exist_ok=True)
+
+        try:
+            for folder_key, paths in files_by_folder.items():
+                tmp_dir = tmp_base / (folder_key.replace("/", "__") if folder_key else "root")
+                tmp_dir.mkdir(parents=True, exist_ok=True)
+                for idx, tif_path in enumerate(paths):
+                    img = imread(str(tif_path))
+                    if is_2d_only:
+                        img = img[np.newaxis, ...]
+                    imwrite(tmp_dir / f"sample_{idx}.tif", img)
+                k2 = ILEE_CSK.opt_k2(
+                    str(tmp_dir),
+                    target_channel=None if is_2d_only else args.channel,
+                )
+                k2_by_folder[folder_key] = k2
+                print(f"[FOLDER] {folder_key or 'root'} K2 = {k2:.4f}")
+        finally:
+            shutil.rmtree(tmp_base, ignore_errors=True)
+
     print(f"[GLOBAL] K1 = {k1:.4f}")
 
     folder_results: Dict[str, List[pd.DataFrame]] = {}
@@ -337,7 +354,7 @@ def run(args):
             preproc_root,
             out_root,
             k1,
-            k2,
+            k2_by_folder[folder_key],
             folder_key,
             args.include_nonstandarized_index,
         )
